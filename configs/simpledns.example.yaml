@@ -118,7 +118,7 @@ routing:
   allow_plaintext_fallback: false
 
   # Interval between background health probes for degraded or failing upstreams
-  probe_interval: "30s"
+  probe_interval: "5s"
 
   # Consecutive failed queries before an upstream is marked as degraded
   failure_threshold: 3

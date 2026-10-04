@@ -66,6 +66,7 @@ func Install(cfg config.ServiceConfig, configFilePath string) error {
 		ErrorControl: mgr.ErrorNormal,
 		DisplayName:  cfg.DisplayName,
 		Description:  cfg.Description,
+		Dependencies: []string{"Tcpip", "Nsi"},
 	}
 
 	s, err = m.CreateService(cfg.Name, absExePath, serviceMgrConfig, "run", "-c", absConfigPath)

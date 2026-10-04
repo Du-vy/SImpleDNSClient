@@ -325,7 +325,16 @@ func (p *Pool) selectCandidates() []*Upstream {
 	}
 
 	// Always append degraded upstreams at the end for failover
-	return append(orderedHealthy, degraded...)
+	candidates := append(orderedHealthy, degraded...)
+	if len(candidates) == 0 {
+		// If all upstreams are marked down (e.g. during system boot before network link
+		// is established or when waking from sleep), try all configured upstreams as
+		// best-effort rather than dropping queries for 30s. The moment the network link
+		// comes up, the incoming query will immediately revive the upstream.
+		return append([]*Upstream(nil), p.upstreams...)
+	}
+
+	return candidates
 }
 
 func (u *Upstream) recordSuccess(latencyMs float64) {
