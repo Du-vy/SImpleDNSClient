@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    name: Run Unit Tests
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+
+      - name: Download WinDivert Binaries
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts\download-windivert.ps1
+
+      - name: Run Package Tests
+        run: go test -v -race ./pkg/...
+
+  cross-compile:
+    name: Cross Compile Verification
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        goarch: [amd64, "386", arm64]
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+
+      - name: Compile for windows/${{ matrix.goarch }}
+        env:
+          GOOS: windows
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: go build -v ./cmd/simpledns
