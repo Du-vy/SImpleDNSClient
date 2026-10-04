@@ -1,0 +1,25 @@
+# Binaries and build artifacts
+bin/*.exe
+bin/*.dll
+bin/*.sys
+*.exe
+*.dll
+*.sys
+*.test
+
+# IDEs
+.vscode/
+.idea/
+
+# OS artifacts
+Thumbs.db
+Desktop.ini
+
+# Test coverage
+*.out
+*.prof
+
+# Local active configuration (contains user private endpoints)
+simpledns.yaml
+bin/simpledns.yaml
+configs/duvy-dns.yaml

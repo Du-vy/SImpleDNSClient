@@ -1,0 +1,266 @@
+# ==============================================================================
+# SimpleDNS Configuration File
+# ==============================================================================
+# SimpleDNS provides transparent, encrypted DNS resolution on Windows without
+# requiring manual changes to network adapter settings (e.g. 127.0.0.1:53).
+#
+# Supported Transports:
+#   - udp   : Classic DNS over UDP
+#   - tcp   : Classic DNS over TCP
+#   - dot   : DNS-over-TLS (RFC 7858, port 853)
+#   - doh   : DNS-over-HTTPS (RFC 8484, HTTP/2, port 443)
+#   - doh3  : DNS-over-HTTPS over HTTP/3 (RFC 9114, QUIC, port 443)
+#   - doq   : DNS-over-QUIC (RFC 9250, port 853)
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# Logging Configuration
+# ------------------------------------------------------------------------------
+logging:
+  # Log level: "debug", "info", "warn", "error"
+  level: "info"
+
+  # Log format: "text" (human readable console) or "json" (structured for SIEM/Service)
+  format: "text"
+
+  # PRIVACY SETTING: Whether to log queried domain names.
+  # When set to false (default), domain names and query contents are NEVER logged.
+  # Set to true only for temporary local diagnostics.
+  log_queries: false
+
+# ------------------------------------------------------------------------------
+# Interceptor Configuration (Windows System Integration)
+# ------------------------------------------------------------------------------
+interceptor:
+  # Mode:
+  #   - "windivert" : Transparent system-wide packet interception via signed
+  #                   WFP kernel callout driver. No adapter DNS changes needed.
+  #                   Requires administrative privileges or Windows Service mode.
+  #   - "listener"  : Standard local loopback DNS server (e.g. 127.0.0.1:5354)
+  #                   Useful for testing, non-elevated runs, or manual DNS setup.
+  #   - "auto"      : Attempts WinDivert if elevated, falls back to listener.
+  mode: "windivert"
+
+  windivert:
+    # Driver filter priority (-1000 to 1000, 0 is standard)
+    priority: 0
+
+    # Custom packet filter string. If left blank, the standard DNS filter is used:
+    # "outbound and !impostor and !loopback and (udp.DstPort == 53 or tcp.DstPort == 53)"
+    filter: ""
+
+    # Whether to intercept outbound TCP port 53 traffic in addition to UDP
+    tcp_interception: true
+
+    # Number of parallel worker goroutines handling packet diversion
+    workers: 4
+
+    # Optional list of destination IP addresses exempt from interception (e.g. bootstrap DNS servers).
+    # If not specified, SimpleDNS automatically populates this from bootstrap.servers.
+    # IMPORTANT: Never add your primary DNS server to this list, or its traffic will bypass encryption.
+    exempt_ips:
+      - "1.1.1.1"
+      - "8.8.8.8"
+
+  listener:
+    # Address to bind when running in 'listener' mode
+    listen_addr: "127.0.0.1:5354"
+    # Protocol: "both", "udp", or "tcp"
+    protocol: "both"
+
+# ------------------------------------------------------------------------------
+# Bootstrap DNS Configuration
+# ------------------------------------------------------------------------------
+# Encrypted DNS endpoints frequently use hostnames (e.g. cloudflare-dns.com).
+# SimpleDNS resolves those endpoint hostnames using these bootstrap servers,
+# strictly avoiding circular dependencies and recursion loops.
+bootstrap:
+  # Bootstrap DNS servers (must be raw IP addresses with or without port, NOT hostnames)
+  servers:
+    - "1.1.1.1:53"
+    - "8.8.8.8:53"
+    - "9.9.9.9:53"
+    - "[2606:4700:4700::1111]:53"
+    - "[2001:4860:4860::8888]:53"
+
+  # Timeout per bootstrap query
+  timeout: "2s"
+
+  # Number of retries per bootstrap server before failing over to the next
+  retries: 2
+
+  # Cache duration for resolved upstream endpoint IP addresses
+  cache_ttl: "300s"
+
+  # IP address resolution preference:
+  #   - "prefer_ipv4" : Prefer IPv4 endpoints if dual-stack
+  #   - "prefer_ipv6" : Prefer IPv6 endpoints if dual-stack
+  #   - "ipv4_only"   : Only resolve IPv4 addresses
+  #   - "ipv6_only"   : Only resolve IPv6 addresses
+  #   - "dual"        : Return both IPv4 and IPv6 addresses
+  ip_preference: "prefer_ipv4"
+
+# ------------------------------------------------------------------------------
+# Upstream Routing & Health Check Policy
+# ------------------------------------------------------------------------------
+routing:
+  # Selection strategy:
+  #   - "priority"    : Primary upstream with failover (uses lowest priority number)
+  #   - "round_robin" : Load balance evenly across healthy providers
+  #   - "fastest"     : Route to the resolver with lowest moving average latency
+  #   - "parallel"    : Query all healthy upstreams concurrently and take the fastest reply
+  strategy: "priority"
+
+  # PRIVACY / SECURITY SAFEGUARD:
+  # Whether to fall back to unencrypted plaintext DNS if all encrypted upstreams fail.
+  # Default is FALSE to ensure queries are never leaked to the local network in plaintext.
+  # If false, SimpleDNS returns SERVFAIL when all encrypted upstreams are unavailable.
+  allow_plaintext_fallback: false
+
+  # Interval between background health probes for degraded or failing upstreams
+  probe_interval: "30s"
+
+  # Consecutive failed queries before an upstream is marked as degraded
+  failure_threshold: 3
+
+# ------------------------------------------------------------------------------
+# In-Memory Response Cache
+# ------------------------------------------------------------------------------
+cache:
+  enabled: true
+
+  # Maximum number of cached DNS records before LRU eviction
+  max_entries: 4096
+
+  # Minimum TTL to apply to cached responses (prevents excessive upstream queries)
+  min_ttl: "10s"
+
+  # Maximum TTL to apply to cached responses (caps long TTL records)
+  max_ttl: "86400s"
+
+  # Negative caching TTL for NXDOMAIN or NODATA responses
+  negative_ttl: "30s"
+
+# ------------------------------------------------------------------------------
+# Upstream DNS Providers
+# ------------------------------------------------------------------------------
+# Define one or more upstream resolvers.
+# Priority: 1 is highest priority. If an upstream fails repeatedly, SimpleDNS
+# automatically fails over to the next priority provider.
+upstreams:
+  # --- Example: Direct IP Endpoint with TLS SNI (Zero Bootstrap Overhead) ---
+  # - name: "Cloudflare DoH3 (Direct IPv6)"
+  #   transport: "doh3"
+  #   endpoint: "https://[2606:4700:4700::1111]/dns-query"
+  #   hostname: "cloudflare-dns.com" # Used for TLS SNI and HTTP Host header
+  #   port: 443
+  #   priority: 1
+  #   timeout: "3s"
+  #   connect_timeout: "2s"
+
+  # --- Cloudflare ---
+  - name: "Cloudflare DoH"
+    transport: "doh"
+    endpoint: "https://cloudflare-dns.com/dns-query"
+    hostname: "cloudflare-dns.com"
+    port: 443
+    priority: 1
+    weight: 100
+    timeout: "3s"
+    connect_timeout: "2s"
+    max_retries: 2
+    ip_preference: "dual"
+
+  - name: "Cloudflare DoT"
+    transport: "dot"
+    endpoint: "1.1.1.1"
+    hostname: "cloudflare-dns.com"
+    port: 853
+    priority: 1
+    weight: 100
+    timeout: "3s"
+    connect_timeout: "2s"
+    max_retries: 2
+    ip_preference: "dual"
+
+  - name: "Cloudflare DoH3 (HTTP/3)"
+    transport: "doh3"
+    endpoint: "https://cloudflare-dns.com/dns-query"
+    hostname: "cloudflare-dns.com"
+    port: 443
+    priority: 2
+    weight: 80
+    timeout: "3s"
+    connect_timeout: "2s"
+    max_retries: 2
+    ip_preference: "dual"
+
+  # --- Google Public DNS ---
+  - name: "Google DoH"
+    transport: "doh"
+    endpoint: "https://dns.google/dns-query"
+    hostname: "dns.google"
+    port: 443
+    priority: 2
+    weight: 100
+    timeout: "3s"
+    connect_timeout: "2s"
+    max_retries: 2
+    ip_preference: "dual"
+
+  - name: "Google DoT"
+    transport: "dot"
+    endpoint: "8.8.8.8"
+    hostname: "dns.google"
+    port: 853
+    priority: 2
+    weight: 100
+    timeout: "3s"
+    connect_timeout: "2s"
+    max_retries: 2
+    ip_preference: "dual"
+
+  # --- Quad9 (Privacy & Security Filtering) ---
+  - name: "Quad9 DoH"
+    transport: "doh"
+    endpoint: "https://dns.quad9.net/dns-query"
+    hostname: "dns.quad9.net"
+    port: 443
+    priority: 3
+    weight: 80
+    timeout: "3s"
+    connect_timeout: "2s"
+    max_retries: 2
+    ip_preference: "dual"
+
+  - name: "Quad9 DoT"
+    transport: "dot"
+    endpoint: "9.9.9.9"
+    hostname: "dns.quad9.net"
+    port: 853
+    priority: 3
+    weight: 80
+    timeout: "3s"
+    connect_timeout: "2s"
+    max_retries: 2
+    ip_preference: "dual"
+
+  - name: "Quad9 DoQ (DNS-over-QUIC)"
+    transport: "doq"
+    endpoint: "dns.quad9.net"
+    hostname: "dns.quad9.net"
+    port: 853
+    priority: 3
+    weight: 50
+    timeout: "3s"
+    connect_timeout: "2s"
+    max_retries: 2
+    ip_preference: "dual"
+
+# ------------------------------------------------------------------------------
+# Windows Service Settings
+# ------------------------------------------------------------------------------
+service:
+  name: "SimpleDNS"
+  display_name: "SimpleDNS Secure Client"
+  description: "Transparent Windows DNS Client with DoH, DoT, DoQ, and DoH3 support"
